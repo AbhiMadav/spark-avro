@@ -116,11 +116,13 @@ private[avro] class DefaultSource extends FileFormat with DataSourceRegister {
     val outputAvroSchema = SchemaConverters.convertStructToAvro(dataSchema, build, recordNamespace)
 
     AvroJob.setOutputKeySchema(job, outputAvroSchema)
+    
     val AVRO_COMPRESSION_CODEC = "spark.sql.avro.compression.codec"
     val AVRO_DEFLATE_LEVEL = "spark.sql.avro.deflate.level"
     val COMPRESS_KEY = "mapred.output.compress"
+    val compress = options.get("compression").orElse(options.get("codec")).orElse(Some(spark.conf.get(AVRO_COMPRESSION_CODEC, "snappy")))
 
-    spark.conf.get(AVRO_COMPRESSION_CODEC, "snappy") match {
+    compress.get match {
       case "uncompressed" =>
         log.info("writing uncompressed Avro records")
         job.getConfiguration.setBoolean(COMPRESS_KEY, false)
@@ -131,12 +133,17 @@ private[avro] class DefaultSource extends FileFormat with DataSourceRegister {
         job.getConfiguration.set(AvroJob.CONF_OUTPUT_CODEC, DataFileConstants.SNAPPY_CODEC)
 
       case "deflate" =>
-        val deflateLevel = spark.conf.get(
+         val deflateLevel = spark.conf.get(
           AVRO_DEFLATE_LEVEL, Deflater.DEFAULT_COMPRESSION.toString).toInt
         log.info(s"compressing Avro output using deflate (level=$deflateLevel)")
         job.getConfiguration.setBoolean(COMPRESS_KEY, true)
         job.getConfiguration.set(AvroJob.CONF_OUTPUT_CODEC, DataFileConstants.DEFLATE_CODEC)
         job.getConfiguration.setInt(AvroOutputFormat.DEFLATE_LEVEL_KEY, deflateLevel)
+
+      case "bzip2" =>
+        log.info("compressing Avro output using bzip2")
+        job.getConfiguration.setBoolean(COMPRESS_KEY, true)
+        job.getConfiguration.set(AvroJob.CONF_OUTPUT_CODEC, DataFileConstants.BZIP2_CODEC)
 
       case unknown: String =>
         log.error(s"unsupported compression codec $unknown")
